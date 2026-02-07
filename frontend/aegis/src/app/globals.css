@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  /* 1. Define Brand Colors (Zinc & Royal Blue) */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  
+  --color-border: var(--border);
+
+  /* 2. Radius */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  /* 3. Fonts - Mapping to CSS Variables we set in Layout */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+/* 4. The CSS Variables Layer (Theme values) */
+/* We use OKLCH or HSL. Here using HSL for familiarity/consistency */
+@layer base {
+  :root {
+    --background: hsl(0 0% 98%);
+    --foreground: hsl(240 10% 3.9%);
+    
+    --primary: hsl(221.2 83.2% 53.3%);
+    --primary-foreground: hsl(210 40% 98%);
+    
+    --muted: hsl(240 4.8% 95.9%);
+    --muted-foreground: hsl(240 3.8% 46.1%);
+    
+    --border: hsl(240 5.9% 90%);
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: hsl(240 10% 3.9%);
+    --foreground: hsl(0 0% 98%);
+    
+    --primary: hsl(217.2 91.2% 59.8%);
+    --primary-foreground: hsl(222.2 47.4% 11.2%);
+    
+    --muted: hsl(240 3.7% 15.9%);
+    --muted-foreground: hsl(240 5% 64.9%);
+    
+    --border: hsl(240 3.7% 15.9%);
+  }
+}
+
+/* 5. Base Resets */
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  * {
+    @apply border-border;
+  }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+}
