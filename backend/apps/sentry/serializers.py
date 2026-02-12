@@ -16,15 +16,14 @@ class ThreatEventSerializer(serializers.ModelSerializer):
         model = ThreatEvent
         fields = (
             'id', 
-            'agent', 
+            'type',               # Replaces agent
             'threat_signature', 
-            'target_url', 
-            'severity', 
-            'is_resolved', 
+            'url',                # Replaces target_url
+            'status',             # Replaces is_resolved
             'timestamp', 
             'time_ago',
-            'ai_explanation',
-            'user_email'
+            'user_email',
+            'ai_explanation'
         )
 
     def get_time_ago(self, obj):
@@ -52,15 +51,15 @@ class StudentDashboardSerializer(serializers.ModelSerializer):
 
     def get_pending_actions(self, user):
         # Fetch unresolved threats (Priority items)
-        # We only show the top 3 most recent unresolved issues
+        # We check if status is NOT 'RESOLVED'
         qs = ThreatEvent.objects.filter(
-            user=user, 
-            is_resolved=False
-        ).order_by('-timestamp')[:3]
+            user=user
+        ).exclude(status='RESOLVED').order_by('-timestamp')[:3]
+        
         return ThreatEventSerializer(qs, many=True).data
 
     def get_recent_activity(self, user):
-        # Fetch the last 5 logs of ANY kind (resolved or not)
+        # Fetch the last 5 logs of ANY kind
         qs = ThreatEvent.objects.filter(user=user).order_by('-timestamp')[:5]
         return ThreatEventSerializer(qs, many=True).data
     
@@ -76,7 +75,7 @@ class AdminDashboardSerializer(serializers.Serializer):
     """
     Aggregates high-level stats for the Institution Dashboard.
     """
-    campus_avg_score = serializers.IntegerField()
+    campus_avg_score = serializers.FloatField()
     total_students = serializers.IntegerField()
     active_threats = serializers.IntegerField()
     resolved_threats = serializers.IntegerField()

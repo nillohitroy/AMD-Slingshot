@@ -11,16 +11,36 @@ class InstitutionAdmin(admin.ModelAdmin):
 # 2. Register Custom User
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
-    # Add our custom fields to the list view
-    list_display = ('username', 'email', 'role', 'institution', 'risk_score', 'is_staff')
-    list_filter = ('role', 'institution', 'is_staff')
-    
-    # Add our custom fields to the "Edit User" form
-    fieldsets = UserAdmin.fieldsets + (
-        ('Aegis Profile', {'fields': ('role', 'institution', 'student_id', 'risk_score')}),
+    # 1. Columns to show in the user list
+    list_display = (
+        'email', 
+        'first_name', 
+        'last_name', 
+        'role', 
+        'department',      # <--- Shows Department in the list
+        'institution', 
+        'risk_score'
     )
-    add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Aegis Profile', {'fields': ('role', 'institution', 'student_id')}),
+    
+    # 2. Filters sidebar (Filter by Dept or Role)
+    list_filter = ('role', 'department', 'institution', 'is_active')
+    
+    # 3. Search bar configuration
+    search_fields = ('email', 'first_name', 'last_name', 'department')
+    
+    # 4. Form Layout (When you click a user to edit them)
+    fieldsets = UserAdmin.fieldsets + (
+        ('Aegis Profile Info', {
+            'fields': (
+                'role', 
+                'department', 
+                'institution', 
+                'student_id',
+                'risk_score',
+                'streak_count',
+                'xp'
+            ),
+        }),
     )
 
 @admin.register(InstitutionApplication)

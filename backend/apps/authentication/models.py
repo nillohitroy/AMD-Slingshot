@@ -63,6 +63,8 @@ class User(AbstractUser):
     extension_installed = models.BooleanField(default=False)
     last_extension_heartbeat = models.DateTimeField(null=True, blank=True)
 
+    xp = models.IntegerField(default=0, help_text="Experience Points from drills")
+
     department = models.CharField(max_length=100, blank=True, null=True, help_text="e.g. Computer Science")
     
     def __str__(self):

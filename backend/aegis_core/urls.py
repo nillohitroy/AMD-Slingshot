@@ -29,4 +29,5 @@ urlpatterns = [
     
     # Admin Routes
     path('api/admin/', include('apps.sentry.admin_urls')),
+    path('api/sentry/', include('apps.sentry.urls')),
 ]

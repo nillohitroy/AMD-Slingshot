@@ -11,27 +11,26 @@ def recalculate_user_score(sender, instance, **kwargs):
     """
     user = instance.user
     
-    # 1. Define Penalty Values
-    # Critical (4) = 15 pts, High (3) = 10 pts, Medium (2) = 5 pts, Low (1) = 2 pts
+    # 1. Calculate Total Penalty of UNRESOLVED threats only
+    # We use 'type' to determine severity since the 'severity' field is gone.
+    # BREACH = 15 pts, PHISHING = 10 pts, BLOCK = 5 pts
     
-    # 2. Calculate Total Penalty of UNRESOLVED threats only
-    total_penalty = user.threat_events.filter(is_resolved=False).aggregate(
+    total_penalty = user.threat_events.exclude(status='RESOLVED').aggregate(
         penalty=Sum(
             Case(
-                When(severity=4, then=15),
-                When(severity=3, then=10),
-                When(severity=2, then=5),
-                When(severity=1, then=2),
-                default=0,
+                When(type='BREACH', then=15),
+                When(type='PHISHING', then=10),
+                When(type='BLOCK', then=5),
+                default=2,
                 output_field=IntegerField(),
             )
         )
     )['penalty'] or 0
 
-    # 3. Calculate Score (Floor at 0, Cap at 100)
+    # 2. Calculate Score (Floor at 0, Cap at 100)
     new_score = max(0, 100 - total_penalty)
     
-    # 4. Only save if changed to avoid infinite loops
+    # 3. Only save if changed to avoid infinite loops
     if user.risk_score != new_score:
         user.risk_score = new_score
         user.save(update_fields=['risk_score'])

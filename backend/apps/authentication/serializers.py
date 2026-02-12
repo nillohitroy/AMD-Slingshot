@@ -20,7 +20,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         
         return data
 
-# 2. Student Registration Serializer
+# 2. Student Registration Serializer (UPDATED)
 class RegisterStudentSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     # We ask for the domain (e.g., 'university.edu') to link them
@@ -28,7 +28,8 @@ class RegisterStudentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('first_name', 'last_name', 'email', 'password', 'student_id', 'institution_domain')
+        # Added 'department' to fields list
+        fields = ('first_name', 'last_name', 'email', 'password', 'student_id', 'institution_domain', 'department')
 
     def validate_institution_domain(self, value):
         try:
@@ -39,6 +40,9 @@ class RegisterStudentSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         institution = validated_data.pop('institution_domain')
         
+        # Extract department from validated data (default to 'General' if missing)
+        department = validated_data.get('department', 'General')
+        
         user = User.objects.create_user(
             username=validated_data['email'], # Use email as username
             email=validated_data['email'],
@@ -48,7 +52,8 @@ class RegisterStudentSerializer(serializers.ModelSerializer):
             student_id=validated_data.get('student_id'),
             institution=institution,
             role=User.Role.STUDENT,
-            risk_score=100 # Default starting score
+            risk_score=100, # Default starting score
+            department=department # <--- Saving the department
         )
         return user
     
@@ -56,3 +61,9 @@ class InstitutionApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = InstitutionApplication
         fields = '__all__'
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'first_name', 'last_name', 'role', 'risk_score', 'streak_count', 'xp', 'department']

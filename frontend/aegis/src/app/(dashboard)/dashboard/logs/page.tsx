@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react"; // 1. Import React
 import api from "@/lib/api";
 import { 
   BrainCircuit, 
@@ -9,21 +9,20 @@ import {
   CheckCircle, 
   FileText, 
   Loader2, 
-  AlertTriangle, 
-  ShieldAlert 
+  AlertTriangle,
+  Ban
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Define the Data Shape
 interface LogEntry {
   id: number;
-  user_email?: string; // From the update above
-  agent: string;
+  user_email: string;
+  type: string;
   threat_signature: string;
-  target_url: string;
-  severity: number;
+  url: string;
+  status: string;
   ai_explanation?: string;
-  is_resolved: boolean;
   time_ago: string;
 }
 
@@ -39,10 +38,6 @@ export default function CognitiveLogsPage() {
         const res = await api.get("/admin/sentinel/");
         const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
         setLogs(data);
-        // Default expand the first item if it has an explanation
-        if (data.length > 0 && data[0].ai_explanation) {
-            setExpandedId(data[0].id);
-        }
       } catch (err) {
         console.error("Failed to load logs", err);
       } finally {
@@ -52,19 +47,19 @@ export default function CognitiveLogsPage() {
     fetchLogs();
   }, []);
 
-  // Filter Logic
   const filteredLogs = logs.filter(log => 
     log.threat_signature.toLowerCase().includes(search.toLowerCase()) ||
-    log.target_url.toLowerCase().includes(search.toLowerCase()) ||
+    (log.url || "").toLowerCase().includes(search.toLowerCase()) ||
     (log.user_email || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  // Helper: Map Severity (1-4) to a "Confidence" percentage for visuals
-  const getConfidence = (severity: number) => {
-     if (severity === 4) return 99;
-     if (severity === 3) return 85;
-     if (severity === 2) return 70;
-     return 45;
+  const getTypeInfo = (type: string) => {
+     switch(type) {
+         case 'BREACH': return { bg: 'bg-red-500', confidence: 99 };
+         case 'PHISHING': return { bg: 'bg-orange-500', confidence: 85 };
+         case 'BLOCK': return { bg: 'bg-purple-500', confidence: 75 };
+         default: return { bg: 'bg-blue-500', confidence: 60 };
+     }
   };
 
   if (loading) return <div className="h-[50vh] flex items-center justify-center"><Loader2 className="animate-spin text-primary w-8 h-8" /></div>;
@@ -96,58 +91,59 @@ export default function CognitiveLogsPage() {
                <tr>
                   <th className="px-6 py-4">Incident ID</th>
                   <th className="px-6 py-4">Student</th>
-                  <th className="px-6 py-4">Threat Type</th>
+                  <th className="px-6 py-4">Threat Signature</th>
                   <th className="px-6 py-4">AI Confidence</th>
-                  <th className="px-6 py-4">Outcome</th>
+                  <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4"></th>
                </tr>
             </thead>
             <tbody className="divide-y divide-border">
                {filteredLogs.length === 0 ? (
                    <tr>
-                       <td colSpan={6} className="p-8 text-center text-muted-foreground">No logs found matching your criteria.</td>
+                       <td colSpan={6} className="p-8 text-center text-muted-foreground">No logs found.</td>
                    </tr>
-               ) : filteredLogs.map((log) => (
-                 <>
-                     {/* Main Row */}
+               ) : filteredLogs.map((log) => {
+                 const info = getTypeInfo(log.type);
+                 return (
+                 /* 2. FIX: Use React.Fragment with explicit key */
+                 <React.Fragment key={log.id}>
                      <tr 
-                        key={log.id} 
                         className={cn(
                             "group hover:bg-muted/20 transition-colors cursor-pointer", 
                             expandedId === log.id && "bg-muted/30"
                         )}
                         onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
                      >
-                        <td className="px-6 py-4 font-mono text-xs text-muted-foreground">LOG-{log.id}</td>
+                        <td className="px-6 py-4 font-mono text-xs text-muted-foreground">#{log.id}</td>
                         <td className="px-6 py-4 font-medium">
-                            {log.user_email || "Unknown User"}
+                            {log.user_email || "Unknown"}
                         </td>
                         <td className="px-6 py-4">
                            <div className="flex flex-col">
                               <span className="font-medium text-foreground">{log.threat_signature}</span>
-                              <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">{log.target_url}</span>
+                              <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">{log.url}</span>
                            </div>
                         </td>
                         <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
                                <div className="h-1.5 w-16 bg-muted rounded-full overflow-hidden">
                                   <div 
-                                    className={cn("h-full", log.severity >= 3 ? "bg-purple-500" : "bg-blue-500")} 
-                                    style={{ width: `${getConfidence(log.severity)}%`}} 
+                                    className={cn("h-full", info.bg)} 
+                                    style={{ width: `${info.confidence}%`}} 
                                   />
                                </div>
-                               <span className="text-xs font-mono">{getConfidence(log.severity)}%</span>
+                               <span className="text-xs font-mono">{info.confidence}%</span>
                             </div>
                         </td>
                         <td className="px-6 py-4">
                            <span className={cn(
                                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border",
-                               log.is_resolved 
+                               log.status === 'RESOLVED'
                                  ? "border-green-500/20 bg-green-500/10 text-green-500" 
                                  : "border-amber-500/20 bg-amber-500/10 text-amber-500"
                            )}>
-                              {log.is_resolved ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                              {log.is_resolved ? "Resolved" : "Action Req."}
+                              {log.status === 'RESOLVED' ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                              {log.status}
                            </span>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -166,19 +162,25 @@ export default function CognitiveLogsPage() {
                                        <BrainCircuit className="w-5 h-5 text-purple-500" />
                                     </div>
                                     <div className="flex-1">
-                                       <h4 className="font-semibold text-sm mb-1 text-purple-600 dark:text-purple-400">
-                                           AI Reasoning Engine
+                                       <h4 className="font-semibold text-sm mb-1 text-purple-600">
+                                           AI Analysis
                                        </h4>
                                        <p className="text-sm text-foreground/80 leading-relaxed max-w-3xl">
-                                          {log.ai_explanation || "No AI analysis available for this event. Standard heuristic block applied based on known threat signatures."}
+                                          {log.ai_explanation || "Automated heuristics detected a potential threat pattern matching known blocklists. No specific generative explanation was stored for this event."}
                                        </p>
+                                       
                                        <div className="mt-4 flex gap-3">
-                                          <button className="text-xs border border-border bg-background px-3 py-1.5 rounded-md hover:bg-muted flex items-center gap-2 transition-colors">
-                                             <FileText className="w-3 h-3" /> View Raw Headers
-                                          </button>
-                                          {!log.is_resolved && (
-                                              <button className="text-xs border border-red-200 bg-red-50 text-red-600 px-3 py-1.5 rounded-md hover:bg-red-100 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400 transition-colors">
-                                                 Mark False Positive
+                                          {log.status !== 'RESOLVED' && (
+                                              <button 
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    /* 3. FIX: Removed extra '/api' prefix */
+                                                    await api.post(`/sentry/resolve/${log.id}/`);
+                                                    window.location.reload();
+                                                }}
+                                                className="text-xs bg-emerald-500 text-white px-3 py-1.5 rounded-md hover:bg-emerald-600 transition-colors"
+                                              >
+                                                 Resolve Incident
                                               </button>
                                           )}
                                        </div>
@@ -187,8 +189,9 @@ export default function CognitiveLogsPage() {
                             </td>
                         </tr>
                      )}
-                 </>
-               ))}
+                 </React.Fragment>
+                 );
+               })}
             </tbody>
          </table>
       </div>

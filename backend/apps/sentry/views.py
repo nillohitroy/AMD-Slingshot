@@ -1,86 +1,107 @@
 from rest_framework import generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import ThreatEvent, PolicyConfig, AuditLog
 from .serializers import StudentDashboardSerializer, ThreatEventSerializer, AdminDashboardSerializer, PolicyConfigSerializer, AuditLogSerializer
-from django.db.models import Avg, Q
+from django.db.models import Avg, Q, Count
 from apps.authentication.models import User, Institution
-from apps.drills.models import Drill, UserDrillProgress
+from apps.drills.models import Drill, UserDrillProgress, DrillAttempt
 from django.core.mail import send_mail
+from apps.drills.services import BreachCheckerService
 
-class StudentDashboardStatsView(APIView):
+class StudentDashboardView(APIView):
     """
     GET /api/student/dashboard/
-    Returns the user's risk score, streak, extension status,
-    and a preview of their recent logs.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # We pass request.user to the serializer
-        serializer = StudentDashboardSerializer(request.user)
-        return Response(serializer.data)
+        user = request.user
+        threats = ThreatEvent.objects.filter(user=user).order_by('-timestamp')[:5]
+        drills = DrillAttempt.objects.filter(user=user, is_passed=True).select_related('drill').order_by('-completed_at')[:5]
+        
+        activity_log = []
+        for t in threats:
+            activity_log.append({
+                "id": f"threat-{t.id}",
+                "type": "THREAT",
+                "title": "Threat Blocked",
+                "subtitle": t.url,
+                "status": "BLOCKED",
+                "timestamp": t.timestamp,
+                "xp_change": 0
+            })
+            
+        for d in drills:
+            activity_log.append({
+                "id": f"drill-{d.id}",
+                "type": "DRILL",
+                "title": f"Drill Complete: {d.drill.title}",
+                "subtitle": "+ XP Reward",
+                "status": "PASSED",
+                "timestamp": d.completed_at,
+                "xp_change": d.drill.xp_reward
+            })
+            
+        activity_log.sort(key=lambda x: x['timestamp'], reverse=True)
+        
+        return Response({
+            "first_name": user.first_name or user.email.split('@')[0],
+            "risk_score": user.risk_score,
+            "streak_count": user.streak_count,
+            "xp": user.xp,
+            "extension_installed": user.extension_installed,
+            "pending_actions": [],
+            "recent_activity": activity_log[:10]
+        })
 
 class StudentHistoryView(generics.ListAPIView):
-    """
-    GET /api/student/history/
-    Returns the COMPLETE list of threat events for the logged-in user.
-    """
     serializer_class = ThreatEventSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Filter so students only see their OWN logs
-        return ThreatEvent.objects.filter(
-            user=self.request.user
-        ).order_by('-timestamp')
+        return ThreatEvent.objects.filter(user=self.request.user).order_by('-timestamp')
     
 
 class AdminDashboardStatsView(APIView):
     """
     GET /api/admin/dashboard/
-    Returns aggregated stats for the Admin's Institution.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # 1. Security: Only allow Admins
         if request.user.role not in ['INSTITUTION_ADMIN', 'SUPER_ADMIN']:
             return Response({"error": "Unauthorized"}, status=403)
 
-        # 2. Scope: Get students belonging to this admin's institution
-        # (For Super Admin, we could show all, but let's stick to institution logic)
         institution = request.user.institution
         
         if institution:
             students = User.objects.filter(institution=institution, role='STUDENT')
             events = ThreatEvent.objects.filter(user__institution=institution)
         else:
-            # Fallback for Super Admin without specific institution
             students = User.objects.filter(role='STUDENT')
             events = ThreatEvent.objects.all()
 
-        # 3. Calculate Stats
+        # FIXED: Use 'status' instead of 'is_resolved'
+        active_threats = events.exclude(status='RESOLVED').count()
+        resolved_threats = events.filter(status='RESOLVED').count()
+
+        threats_by_type = events.values('type').annotate(count=Count('id'))
+        chart_data = [{"name": item['type'], "value": item['count']} for item in threats_by_type]
+
         data = {
             'campus_avg_score': students.aggregate(Avg('risk_score'))['risk_score__avg'] or 0,
             'total_students': students.count(),
-            'active_threats': events.filter(is_resolved=False).count(),
-            'resolved_threats': events.filter(is_resolved=True).count(),
-            # Get top 5 lowest scoring students
-            'at_risk_students': students.order_by('risk_score')[:5],
-            # Get last 10 events
-            'recent_logs': events.order_by('-timestamp')[:10]
+            'active_threats': active_threats,
+            'resolved_threats': resolved_threats,
+            'chart_data': chart_data,
+            'at_risk_students': students.order_by('risk_score')[:5].values('first_name', 'last_name', 'risk_score', 'department'),
+            'recent_logs': events.order_by('-timestamp')[:10].values('id', 'user__email', 'threat_signature', 'type', 'status', 'timestamp')
         }
-
-        serializer = AdminDashboardSerializer(data)
-        return Response(serializer.data)
+        return Response(data)
 
 class AdminLiveSentinelView(generics.ListAPIView):
-    """
-    GET /api/admin/sentinel/
-    Returns the 50 most recent events for the 'Live Feed'.
-    """
     serializer_class = ThreatEventSerializer
     permission_classes = [IsAuthenticated]
 
@@ -95,176 +116,86 @@ class AdminLiveSentinelView(generics.ListAPIView):
     
 
 class AdminIdentityDrillView(APIView):
-    # ... permissions ...
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
         if user.role not in ['INSTITUTION_ADMIN', 'SUPER_ADMIN']:
             return Response({"error": "Unauthorized"}, status=403)
 
-        institution = user.institution
-        students = User.objects.filter(institution=institution, role='STUDENT')
+        domain = user.email.split('@')[1] if '@' in user.email else ''
+        students = User.objects.filter(email__icontains=domain, role='STUDENT')
         
-        # 1. Identity Score & Events (Existing Logic)
-        avg_score = students.aggregate(Avg('risk_score'))['risk_score__avg'] or 100
-        guardian_events = ThreatEvent.objects.filter(
-            user__institution=institution, 
-            agent='GUARDIAN'
-        ).order_by('-timestamp')[:5]
+        dark_web_hits = ThreatEvent.objects.filter(type='BREACH', user__email__icontains=domain).count()
 
-        # 2. Simulation Stats (Existing Logic)
-        latest_drill = Drill.objects.filter(category='PHISHING').order_by('-created_at').first()
-        
-        sim_stats = {
-            "name": "No Active Campaign",
-            "emails_sent": 0,
-            "click_rate": 0,
-            "report_rate": 0,
-            "days_left": 0
-        }
-        
-        # 3. NEW: Department Aggregation Logic
-        dept_stats = []
+        avg_risk = students.aggregate(Avg('risk_score'))['risk_score__avg'] or 70
+        identity_score = max(0, min(100, int(100 - (dark_web_hits * 5) - (100 - avg_risk) * 0.2)))
 
-        if latest_drill:
-            total_students = students.count()
-            completed_count = UserDrillProgress.objects.filter(drill=latest_drill, is_completed=True).count()
-            
-            # Global Stats
-            report_rate = (completed_count / total_students * 100) if total_students > 0 else 0
-            sim_stats = {
-                "name": latest_drill.title,
-                "emails_sent": total_students,
-                "click_rate": round(100 - report_rate, 1),
-                "report_rate": round(report_rate, 1),
-                "days_left": 2
-            }
+        dept_data = students.values('department').annotate(
+            avg_score=Avg('risk_score'),
+            student_count=Count('id')
+        ).order_by('avg_score')
 
-            # --- CALCULATE DEPARTMENT STATS ---
-            # Get distinct departments that are not null
-            departments = students.values_list('department', flat=True).distinct()
-            
-            for dept in departments:
-                if not dept: continue # Skip users with no department
-                
-                # Filter students in this specific department
-                dept_students = students.filter(department=dept)
-                dept_total = dept_students.count()
-                
-                # Count how many passed
-                dept_completed = UserDrillProgress.objects.filter(
-                    drill=latest_drill, 
-                    user__in=dept_students, 
-                    is_completed=True
-                ).count()
-                
-                if dept_total > 0:
-                    # Failure Rate = Percentage of students who did NOT complete the drill
-                    fail_rate = ((dept_total - dept_completed) / dept_total) * 100
-                    dept_stats.append({
-                        "dept": dept,
-                        "rate": round(fail_rate, 1)
-                    })
-            
-            # Sort by highest failure rate (Most vulnerable first)
-            dept_stats.sort(key=lambda x: x['rate'], reverse=True)
-            # Take top 5
-            dept_stats = dept_stats[:5]
+        chart_stats = [{"name": d['department'] or "Unassigned", "score": round(d['avg_score'] or 0), "students": d['student_count']} for d in dept_data]
+        recent_breaches = ThreatEvent.objects.filter(type='BREACH', user__email__icontains=domain).order_by('-timestamp')[:5].values('id', 'user__email', 'timestamp')
 
         return Response({
-            "identity_score": round(avg_score),
-            "institution_domain": institution.domain if institution else "aegis.edu",
-            "guardian_events": ThreatEventSerializer(guardian_events, many=True).data,
-            "simulation": sim_stats,
-            "department_stats": dept_stats # <--- Sent to Frontend
+            "identity_score": identity_score,
+            "dark_web_hits": dark_web_hits,
+            "monitored_users": students.count(),
+            "department_stats": chart_stats,
+            "recent_breaches": recent_breaches
         })
-    
 
 class AdminPolicyView(generics.RetrieveUpdateAPIView):
-    """
-    GET /api/admin/policy/ -> Get Config
-    PATCH /api/admin/policy/ -> Update Config
-    """
     serializer_class = PolicyConfigSerializer
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        # Ensure only Admins can access
         if self.request.user.role not in ['INSTITUTION_ADMIN', 'SUPER_ADMIN']:
             self.permission_denied(self.request)
-        
-        # Get or Create the policy for this user
         obj, created = PolicyConfig.objects.get_or_create(user=self.request.user)
         return obj
     
 
 class SuperAdminDashboardView(APIView):
-    """
-    GET /api/super/dashboard/
-    Global stats for the Super Admin.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         if request.user.role != 'SUPER_ADMIN':
             return Response({"error": "Unauthorized"}, status=403)
 
-        # Global Counts
         stats = {
             "total_institutions": Institution.objects.filter(status='ACTIVE').count(),
             "pending_requests": Institution.objects.filter(status='PENDING').count(),
             "total_students": User.objects.filter(role='STUDENT').count(),
-            "global_threats": ThreatEvent.objects.filter(is_resolved=False).count(),
-            # Pending List
-            "requests": Institution.objects.filter(status='PENDING').values(
-                'id', 'name', 'domain', 'admin_email', 'created_at'
-            )
+            # FIXED: Use 'status' here too
+            "global_threats": ThreatEvent.objects.exclude(status='RESOLVED').count(),
+            "requests": Institution.objects.filter(status='PENDING').values('id', 'name', 'domain', 'admin_email', 'created_at')
         }
         return Response(stats)
 
 class InstitutionActionView(APIView):
-    """
-    POST /api/super/institution/<id>/action/
-    Approve or Reject an institution.
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         if request.user.role != 'SUPER_ADMIN':
             return Response({"error": "Unauthorized"}, status=403)
 
-        action = request.data.get('action') # 'APPROVE' or 'REJECT'
+        action = request.data.get('action') 
         try:
             institution = Institution.objects.get(pk=pk)
         except Institution.DoesNotExist:
             return Response({"error": "Not found"}, status=404)
 
         if action == 'APPROVE':
-            # 1. Activate Institution
             institution.status = 'ACTIVE'
             institution.save()
-
-            # 2. Create/Activate the Admin User
-            # We assume the admin_email was collected during registration
             if institution.admin_email:
-                admin_user, created = User.objects.get_or_create(
+                User.objects.get_or_create(
                     email=institution.admin_email,
-                    defaults={
-                        'role': 'INSTITUTION_ADMIN',
-                        'institution': institution,
-                        'is_active': True
-                    }
+                    defaults={'role': 'INSTITUTION_ADMIN', 'institution': institution, 'is_active': True}
                 )
-                
-                # 3. "Send Email" Logic
-                # In production, use send_mail(). Here we simulate it.
-                setup_link = f"https://aegis.com/setup-password?token=mock_token_for_{admin_user.id}"
-                print(f"--- [EMAIL SIMULATION] ---")
-                print(f"To: {institution.admin_email}")
-                print(f"Subject: Welcome to Aegis - Request Approved")
-                print(f"Body: Your institution {institution.name} is approved. Click here to set password: {setup_link}")
-                print(f"--------------------------")
-
             return Response({"message": "Institution approved & email sent."})
 
         elif action == 'REJECT':
@@ -276,27 +207,14 @@ class InstitutionActionView(APIView):
     
 
 class SuperUserRegistryView(APIView):
-    """
-    GET /api/super/users/?search=alex
-    Search any user in the database.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         if request.user.role != 'SUPER_ADMIN': return Response(status=403)
-        
         query = request.query_params.get('search', '')
         users = User.objects.all().select_related('institution').order_by('-date_joined')
-        
         if query:
-            users = users.filter(
-                Q(email__icontains=query) | 
-                Q(first_name__icontains=query) | 
-                Q(last_name__icontains=query)
-            )
-            
-        # Pagination (Simple slice for now)
-        users = users[:50] 
+            users = users.filter(Q(email__icontains=query) | Q(first_name__icontains=query) | Q(last_name__icontains=query))
         
         data = [{
             "id": u.id,
@@ -307,26 +225,17 @@ class SuperUserRegistryView(APIView):
             "is_active": u.is_active,
             "risk_score": u.risk_score,
             "joined": u.date_joined.strftime("%Y-%m-%d")
-        } for u in users]
-        
+        } for u in users[:50]]
         return Response(data)
 
 class SuperUserActionView(APIView):
-    """
-    POST /api/super/users/<id>/toggle/
-    Lock or Unlock a user account.
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         if request.user.role != 'SUPER_ADMIN': return Response(status=403)
-        
         try:
             target_user = User.objects.get(pk=pk)
-            # Prevent Super Admin from locking themselves!
-            if target_user.role == 'SUPER_ADMIN':
-                return Response({"error": "Cannot lock a Super Admin"}, status=400)
-                
+            if target_user.role == 'SUPER_ADMIN': return Response({"error": "Cannot lock a Super Admin"}, status=400)
             target_user.is_active = not target_user.is_active
             target_user.save()
             return Response({"status": "updated", "is_active": target_user.is_active})
@@ -335,14 +244,103 @@ class SuperUserActionView(APIView):
         
 
 class SuperAuditLogView(generics.ListAPIView):
-    """
-    GET /api/super/audit/
-    Returns global audit logs.
-    """
     serializer_class = AuditLogSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        if self.request.user.role != 'SUPER_ADMIN':
-            return AuditLog.objects.none()
+        if self.request.user.role != 'SUPER_ADMIN': return AuditLog.objects.none()
         return AuditLog.objects.all().order_by('-timestamp')
+    
+
+class TriggerDarkWebScanView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role not in ['INSTITUTION_ADMIN', 'SUPER_ADMIN']:
+             return Response({"error": "Unauthorized"}, status=403)
+
+        domain = request.user.email.split('@')[1] if '@' in request.user.email else ''
+        students = User.objects.filter(email__icontains=domain, role='STUDENT')
+        
+        total_new_breaches = 0
+        for student in students:
+            total_new_breaches += BreachCheckerService.check_email(student)
+
+        return Response({
+            "message": "Scan Complete",
+            "students_scanned": students.count(),
+            "new_breaches_found": total_new_breaches
+        })
+
+
+class SentryCheckView(APIView):
+    """
+    POST /api/sentry/check/
+    Input: { "url": "http://example.com", "email": "student@college.edu" }
+    Output: { "status": "SAFE" | "BLOCKED" }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        url = request.data.get('url', '').lower()
+        email = request.data.get('email', 'unknown_user')
+        
+        # 1. The "Blacklist" Logic
+        blocked_keywords = ['phishing', 'malware', 'gambling', 'illegal', 'betting']
+        is_malicious = any(keyword in url for keyword in blocked_keywords)
+
+        user = None
+        if email != 'anonymous':
+            try:
+                user = User.objects.get(email=email)
+                
+                # --- NEW LOGIC: Mark extension as installed ---
+                if not user.extension_installed:
+                    user.extension_installed = True
+                    user.save(update_fields=['extension_installed'])
+                # ----------------------------------------------
+                
+            except User.DoesNotExist:
+                pass
+
+        if is_malicious:
+            # 2. Log the Threat
+            user = None
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                pass
+            
+            if user:
+                # 3. Create Event (Triggering the Signal)
+                ThreatEvent.objects.create(
+                    user=user,
+                    type='BLOCK',
+                    threat_signature="Content Filter Violation",
+                    url=url,
+                    status='BLOCKED'  # <--- Correct field for Signal
+                )
+
+            return Response({"status": "BLOCKED", "reason": "Content Filter"})
+
+        return Response({"status": "SAFE"})
+    
+
+class ResolveThreatView(APIView):
+    """
+    POST /api/sentry/resolve/<id>/
+    Marks a threat as RESOLVED and restores the user's score.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if request.user.role not in ['INSTITUTION_ADMIN', 'SUPER_ADMIN']:
+            return Response({"error": "Unauthorized"}, status=403)
+
+        try:
+            event = ThreatEvent.objects.get(pk=pk)
+            event.status = 'RESOLVED'
+            event.save() # This triggers the signal to fix the score
+            return Response({"message": "Threat resolved", "new_score": event.user.risk_score})
+        except ThreatEvent.DoesNotExist:
+            return Response({"error": "Event not found"}, status=404)

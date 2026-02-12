@@ -3,7 +3,10 @@ from .models import ThreatEvent
 
 @admin.register(ThreatEvent)
 class ThreatEventAdmin(admin.ModelAdmin):
-    list_display = ('agent', 'user', 'threat_signature', 'severity', 'timestamp')
-    list_filter = ('agent', 'severity', 'timestamp')
-    search_fields = ('user__email', 'target_url', 'threat_signature')
-    readonly_fields = ('timestamp',) # Prevent tampering with logs
+    list_display = ('type', 'user', 'threat_signature', 'status', 'timestamp')
+
+    list_filter = ('type', 'status', 'timestamp')
+
+    search_fields = ('user__email', 'url', 'threat_signature')
+    
+    readonly_fields = ('timestamp',)

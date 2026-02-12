@@ -3,8 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import api from "@/lib/api"; // Ensure you have this file created from previous steps
-import { Logo } from "@/components/ui/logo";
+import api from "@/lib/api";
 import { 
   ArrowLeft, 
   GraduationCap, 
@@ -12,7 +11,8 @@ import {
   AlertCircle, 
   CheckCircle2, 
   Eye, 
-  EyeOff 
+  EyeOff,
+  Building2 // Added Icon
 } from "lucide-react";
 
 export default function StudentRegisterPage() {
@@ -28,10 +28,24 @@ export default function StudentRegisterPage() {
     lastName: "",
     email: "",
     studentId: "",
+    department: "Computer Science", // Default
+    gradYear: "2025",
     password: "",
-    confirmPassword: "",
-    gradYear: "2025" // Optional, stored for future use
+    confirmPassword: ""
   });
+
+  // Department List (Including AIML)
+  const departments = [
+    "Computer Science",
+    "Information Technology",
+    "Artificial Intelligence & Machine Learning", // Added AIML
+    "Electronics & Comm.",
+    "Electrical Engineering",
+    "Mechanical Engineering",
+    "Civil Engineering",
+    "Cyber Security",
+    "Data Science"
+  ];
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -55,19 +69,16 @@ export default function StudentRegisterPage() {
         return;
     }
 
-    // 2. Extract Domain from Email (e.g. "alex@tech.edu" -> "tech.edu")
-    // This allows the backend to find the correct Institution automatically.
-    const domain = formData.email.split("@")[1];
-
     try {
-      // 3. API Call
-      await api.post("/auth/register/student/", {
+      // 2. API Call
+      await api.post("/auth/register/", {
         first_name: formData.firstName,
         last_name: formData.lastName,
         email: formData.email,
-        password: formData.password,
         student_id: formData.studentId,
-        institution_domain: domain 
+        department: formData.department, // Sending Department
+        password: formData.password,
+        role: "STUDENT"
       });
 
       setSuccess(true);
@@ -76,8 +87,8 @@ export default function StudentRegisterPage() {
 
     } catch (err: any) {
       console.error(err);
-      // Handle specific backend errors (e.g., "Institution not found")
       if (err.response?.data) {
+          // Extract first available error message from Django
           const firstError = Object.values(err.response.data).flat()[0] as string;
           setError(firstError || "Registration failed. Please try again.");
       } else {
@@ -92,7 +103,7 @@ export default function StudentRegisterPage() {
   if (success) {
       return (
         <div className="min-h-screen bg-muted/20 flex flex-col items-center justify-center p-4">
-             <div className="w-full max-w-lg bg-background border border-border rounded-xl shadow-lg p-12 text-center">
+             <div className="w-full max-w-lg bg-background border border-border rounded-xl shadow-lg p-12 text-center fade-in-up">
                 <div className="h-20 w-20 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
                     <CheckCircle2 className="w-10 h-10" />
                 </div>
@@ -170,9 +181,24 @@ export default function StudentRegisterPage() {
                     className="h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary" 
                     placeholder="jane.doe@tech.edu" 
                 />
-                <p className="text-[10px] text-muted-foreground">
-                    Must use your official university domain (e.g. @tech.edu).
-                </p>
+            </div>
+
+            {/* Department Selection (NEW) */}
+            <div className="space-y-2">
+                <label className="text-sm font-medium">Department</label>
+                <div className="relative">
+                    <Building2 className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <select 
+                        name="department"
+                        onChange={handleChange}
+                        className="flex h-10 w-full rounded-md border border-input pl-9 pr-3 bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer"
+                        value={formData.department}
+                    >
+                        {departments.map((dept) => (
+                            <option key={dept} value={dept}>{dept}</option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -182,7 +208,7 @@ export default function StudentRegisterPage() {
                     name="studentId"
                     onChange={handleChange}
                     className="h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary" 
-                    placeholder="STU-2024-X" 
+                    placeholder="STU-202X" 
                   />
                </div>
                <div className="space-y-2">
@@ -190,7 +216,7 @@ export default function StudentRegisterPage() {
                   <select 
                     name="gradYear"
                     onChange={handleChange}
-                    className="flex h-10 w-full rounded-md border border-input px-3 bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="flex h-10 w-full rounded-md border border-input px-3 bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
                   >
                      <option value="2025">2025</option>
                      <option value="2026">2026</option>

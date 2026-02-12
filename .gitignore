@@ -2,3 +2,4 @@ __pycache__/
 db.sqlite3
 vercel.svg
 next.svg
+.env

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { 
+            width: 320px; 
+            padding: 20px; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #09090b; 
+            color: white; 
+            box-sizing: border-box;
+        }
+
+        /* Header */
+        h1 { 
+            font-size: 18px; 
+            margin: 0 0 5px 0; 
+            color: #10b981; 
+            display: flex; 
+            align-items: center; 
+            gap: 8px;
+        }
+        
+        p.subtitle { 
+            font-size: 12px; 
+            color: #a1a1aa; 
+            margin: 0 0 20px 0; 
+        }
+
+        /* Form Elements */
+        .input-group { margin-bottom: 12px; }
+        
+        label { 
+            display: block; 
+            font-size: 11px; 
+            color: #71717a; 
+            margin-bottom: 4px; 
+            font-weight: 600;
+        }
+
+        input { 
+            width: 100%; 
+            padding: 10px; 
+            background: #27272a; 
+            border: 1px solid #3f3f46; 
+            color: white; 
+            border-radius: 6px; 
+            font-size: 13px;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        input:focus { border-color: #10b981; }
+
+        button { 
+            width: 100%; 
+            padding: 10px; 
+            background: #10b981; 
+            border: none; 
+            color: black; 
+            font-weight: bold; 
+            cursor: pointer; 
+            border-radius: 6px; 
+            font-size: 13px;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+        
+        button:hover { background: #059669; }
+        button:disabled { opacity: 0.7; cursor: not-allowed; }
+
+        /* Status & Error Messages */
+        .status { 
+            margin-top: 15px; 
+            font-size: 11px; 
+            text-align: center; 
+            color: #71717a; 
+            min-height: 15px;
+        }
+        
+        .error { color: #ef4444; }
+
+        /* Connected View (Hidden by default) */
+        #connectedView { display: none; text-align: center; }
+        .shield-icon { font-size: 40px; margin-bottom: 10px; display: block; text-align: center; }
+        .user-email { font-size: 14px; font-weight: bold; color: white; margin-bottom: 5px; text-align: center; }
+        .logout-btn { background: #ef4444; color: white; margin-top: 15px; }
+        .logout-btn:hover { background: #dc2626; }
+
+    </style>
+</head>
+<body>
+
+    <div id="loginView">
+        <h1>Aegis Student Guard</h1>
+        <p class="subtitle">Secure Browser Monitor</p>
+        
+        <div class="input-group">
+            <label>University Email</label>
+            <input type="email" id="email" placeholder="student@university.edu" />
+        </div>
+
+        <div class="input-group">
+            <label>Password</label>
+            <input type="password" id="password" placeholder="********" />
+        </div>
+        
+        <button id="loginBtn">Sign In</button>
+        <div class="status" id="statusMsg"></div>
+    </div>
+
+    <div id="connectedView">
+        <div class="shield-icon">🛡️</div>
+        <h1>Active Protection</h1>
+        <p class="subtitle" style="text-align:center;">Your browsing is being secured.</p>
+        
+        <div class="user-email" id="displayEmail">user@email.com</div>
+        
+        <button id="logoutBtn" class="logout-btn">Disconnect Account</button>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
