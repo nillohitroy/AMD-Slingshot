@@ -60,6 +60,8 @@ python manage.py runserver
 ```
 *The backend will be live at `http://localhost:8000`*
 
+*Create a .env file in the backend folder, then create a key called GEMINI_API_KEY and insert your Gemini Api key there*
+
 ### 2. Frontend Setup (Next.js)
 The client-facing applications built simply with modern Next.js and Tailwind CSS standards.
 
